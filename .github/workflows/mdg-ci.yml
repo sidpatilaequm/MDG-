@@ -2,11 +2,10 @@ name: MDG CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +14,6 @@ jobs:
   build:
     name: Build MDG
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,11 +29,78 @@ jobs:
         run: |
           chmod +x ./mvnw
           ./mvnw -B clean verify
+          mkdir -p dist
+          JAR=$(find target -maxdepth 1 -type f -name '*.jar' ! -name '*.original' | head -n 1)
+          test -n "$JAR"
+          cp "$JAR" dist/mdg.jar
+          test -f tessdata/eng.traineddata
 
-      - name: Upload application JAR
+      - name: Upload deployment files
         uses: actions/upload-artifact@v4
         with:
-          name: mdg-application
-          path: target/*.jar
+          name: mdg-deployment
+          path: |
+            dist/mdg.jar
+            tessdata/eng.traineddata
           if-no-files-found: error
           retention-days: 7
+
+  deploy:
+    name: Deploy MDG files to Hosticare
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download deployment files
+        uses: actions/download-artifact@v4
+        with:
+          name: mdg-deployment
+          path: deploy-files
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          set -eu
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SERVER_HOST"
+          test -n "$SERVER_PORT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$SERVER_PORT" "$SERVER_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Prepare Hosticare release directory
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "command -v java >/dev/null 2>&1 || (dnf install -y java-17-openjdk-headless); java -version; mkdir -p '$RELEASE'"
+
+      - name: Copy MDG application and OCR data
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
+          scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
+            deploy-files/dist/mdg.jar \
+            "$SERVER_USER@$SERVER_HOST:$RELEASE/mdg.jar"
+          scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
+            deploy-files/tessdata/eng.traineddata \
+            "$SERVER_USER@$SERVER_HOST:$RELEASE/eng.traineddata"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "test -s '$RELEASE/mdg.jar' && test -s '$RELEASE/eng.traineddata' && echo 'MDG files staged successfully'"
+
