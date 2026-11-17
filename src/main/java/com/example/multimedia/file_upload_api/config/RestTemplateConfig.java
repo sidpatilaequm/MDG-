@@ -28,7 +28,16 @@ public class RestTemplateConfig {
         
         // Set custom error handler
         restTemplate.setErrorHandler(new DefaultResponseErrorHandler());
-        
+
+        return restTemplate;
+    }
+
+    /** Separate bean for Microvista - the default restTemplate() above hardwires Attestr's
+     *  Basic-auth header via an interceptor, which would corrupt every Microvista call. */
+    @Bean
+    public RestTemplate microvistaRestTemplate() {
+        RestTemplate restTemplate = new RestTemplate();
+        restTemplate.setErrorHandler(new DefaultResponseErrorHandler());
         return restTemplate;
     }
 }

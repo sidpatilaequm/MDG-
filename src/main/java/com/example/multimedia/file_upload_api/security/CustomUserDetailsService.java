@@ -1,10 +1,13 @@
 package com.example.multimedia.file_upload_api.security;
 
 import com.example.multimedia.file_upload_api.entity.SuperAdmin;
+import com.example.multimedia.file_upload_api.entity.UserAuthentication;
 import com.example.multimedia.file_upload_api.entity.UserDetail;
 import com.example.multimedia.file_upload_api.repository.SuperAdminRepository;
+import com.example.multimedia.file_upload_api.repository.UserAuthenticationRepository;
 import com.example.multimedia.file_upload_api.repository.UserDetailRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -12,9 +15,9 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
@@ -24,6 +27,9 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Autowired
     private SuperAdminRepository superAdminRepository;
+
+    @Autowired
+    private UserAuthenticationRepository userAuthenticationRepository;
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -38,7 +44,13 @@ public class CustomUserDetailsService implements UserDetailsService {
         Optional<UserDetail> userOpt = userDetailRepository.findByEmail(email);
         if (userOpt.isPresent()) {
             UserDetail user = userOpt.get();
-            return new User(user.getEmail(), user.getPassword(), new ArrayList<>());
+            List<GrantedAuthority> authorities = userAuthenticationRepository
+                    .findAllActiveByUserId(user.getUserId())
+                    .stream()
+                    .map(UserAuthentication::getAuthKey)
+                    .map(SimpleGrantedAuthority::new)
+                    .collect(Collectors.toList());
+            return new User(user.getEmail(), user.getPassword(), authorities);
         }
 
         throw new UsernameNotFoundException("User not found with email: " + email);

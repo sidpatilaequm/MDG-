@@ -1,5 +1,6 @@
 package com.example.multimedia.file_upload_api.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -17,6 +18,11 @@ public class SuperAdmin {
     @Column(nullable = false, unique = true)
     private String email;
 
+    // WRITE_ONLY, not @JsonIgnore: SuperAdminController#registerSuperAdmin still needs to bind
+    // an incoming "password" field from request JSON, but neither that controller's responses
+    // nor ApproverGroupController's (which nests this entity under ApproverGroup) must ever
+    // echo the hash back out.
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(nullable = false)
     private String password;
 

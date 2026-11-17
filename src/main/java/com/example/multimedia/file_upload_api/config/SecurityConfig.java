@@ -34,6 +34,18 @@ public class SecurityConfig {
                         .requestMatchers("/api/business-card/**").permitAll()
                         .requestMatchers("/api/ocr/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
+                        // One-click email approve/reject link - permitAll at this layer; the
+                        // controller itself validates the action-token JWT (its own secret,
+                        // separate from login sessions) before doing anything.
+                        .requestMatchers("/api/approvals/action/**").permitAll()
+                        .requestMatchers("/api/actuator/health", "/actuator/health").permitAll()
+                        .requestMatchers("/api/admin/approver-groups/**").hasAuthority("super_admin")
+                        .requestMatchers("/api/supplier-registration/**", "/api/approvals/**")
+                            .hasAnyAuthority("approver", "super_admin")
+                        // Deliberately NOT "/api/vendor/**" - VendorCatalogueController already
+                        // lives at that prefix for any authenticated user; a new, narrower path
+                        // avoids tightening that existing, unrelated endpoint's access rule.
+                        .requestMatchers("/api/vendor-change-requests/**").hasAnyAuthority("vendor", "super_admin")
                         .requestMatchers("/api/company-addresses/**").authenticated()
                         .requestMatchers("/api/upload/**").authenticated()
                         .requestMatchers("/api/users/**").authenticated()

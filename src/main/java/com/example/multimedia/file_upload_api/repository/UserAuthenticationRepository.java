@@ -20,4 +20,7 @@ public interface UserAuthenticationRepository extends JpaRepository<UserAuthenti
     @Query("SELECT ua FROM UserAuthentication ua WHERE ua.authKey = :authKey AND ua.isActive = true")
     List<UserAuthentication> findByAuthKey(@Param("authKey") String authKey);
 
+    @Query("SELECT ua FROM UserAuthentication ua WHERE ua.userId = :userId AND ua.isActive = true")
+    List<UserAuthentication> findAllActiveByUserId(@Param("userId") Long userId);
+
 }

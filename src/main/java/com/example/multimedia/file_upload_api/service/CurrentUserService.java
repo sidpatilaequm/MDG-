@@ -77,6 +77,42 @@ public class CurrentUserService {
     }
 
     /**
+     * The tenant (super_admin_id) the current principal belongs to, whether they ARE a
+     * SuperAdmin or are a regular UserDetail (e.g. an "approver") linked to one. Unlike
+     * {@link #getCurrentSuperAdminId()}, this never throws for a non-SuperAdmin login.
+     */
+    public Long getOwningSuperAdminId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new RuntimeException("No authenticated user found");
+        }
+        String email = authentication.getName();
+        return superAdminRepository.findByEmail(email)
+                .map(SuperAdmin::getSuperAdminId)
+                .orElseGet(() -> userDetailRepository.findByEmail(email)
+                        .map(u -> u.getSuperAdmin().getSuperAdminId())
+                        .orElseThrow(() -> new RuntimeException("No account found with email: " + email)));
+    }
+
+    public record PrincipalIdentity(Long id, String email) {}
+
+    /** The current principal's own id + email, whether they are a SuperAdmin or a UserDetail -
+     *  for anything (like recording who took an approval action) that just needs "who is this,
+     *  regardless of account type" rather than their tenant. */
+    public PrincipalIdentity getCurrentPrincipalIdentity() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new RuntimeException("No authenticated user found");
+        }
+        String email = authentication.getName();
+        return superAdminRepository.findByEmail(email)
+                .map(a -> new PrincipalIdentity(a.getSuperAdminId(), a.getEmail()))
+                .orElseGet(() -> userDetailRepository.findByEmail(email)
+                        .map(u -> new PrincipalIdentity(u.getUserId(), u.getEmail()))
+                        .orElseThrow(() -> new RuntimeException("No account found with email: " + email)));
+    }
+
+    /**
      * Check if the current user is a SuperAdmin
      * @return true if SuperAdmin, false otherwise
      */

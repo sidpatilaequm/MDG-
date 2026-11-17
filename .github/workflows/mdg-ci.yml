@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# A second push landing mid-deploy would race the same release directory and
+# symlink - serialize deploys instead of cancelling one mid-flight (same guard
+# backend_java added after a real overlapping-deploy incident).
+concurrency:
+  group: mdg-deploy
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build MDG
@@ -42,6 +49,7 @@ jobs:
           path: |
             dist/mdg.jar
             tessdata/eng.traineddata
+            deploy/mdg.service
           if-no-files-found: error
           retention-days: 7
 
@@ -94,13 +102,96 @@ jobs:
         run: |
           set -eu
           RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
+          mkdir -p "$RELEASE/tessdata"
           scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
             deploy-files/dist/mdg.jar \
             "$SERVER_USER@$SERVER_HOST:$RELEASE/mdg.jar"
           scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
             deploy-files/tessdata/eng.traineddata \
-            "$SERVER_USER@$SERVER_HOST:$RELEASE/eng.traineddata"
+            "$SERVER_USER@$SERVER_HOST:$RELEASE/tessdata/eng.traineddata"
           ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
             "$SERVER_USER@$SERVER_HOST" \
-            "test -s '$RELEASE/mdg.jar' && test -s '$RELEASE/eng.traineddata' && echo 'MDG files staged successfully'"
+            "test -s '$RELEASE/mdg.jar' && test -s '$RELEASE/tessdata/eng.traineddata' && echo 'MDG files staged successfully'"
+
+      - name: Install systemd unit
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
+            deploy-files/deploy/mdg.service \
+            "$SERVER_USER@$SERVER_HOST:/tmp/mdg.service"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "sudo install -m644 /tmp/mdg.service /etc/systemd/system/mdg.service && sudo systemctl daemon-reload && sudo systemctl enable mdg"
+
+      - name: Activate release
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "ln -sfn '$RELEASE' /opt/mdg/current && sudo systemctl restart mdg"
+
+      - name: Health check
+        id: health_check
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" '
+              set -eu
+              for i in $(seq 1 30); do
+                if curl -sf http://127.0.0.1:8080/actuator/health | grep -q "\"status\":\"UP\""; then
+                  echo "healthy"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "unhealthy"
+              exit 1
+            '
+
+      - name: Record last-good release
+        if: success()
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "echo '$RELEASE' | sudo tee /opt/mdg/releases/last-good > /dev/null"
+
+      - name: Roll back to last-known-good release on failed health check
+        if: failure() && steps.health_check.outcome == 'failure'
+        env:
+          SERVER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SERVER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          SERVER_USER: ${{ secrets.HOSTINGER_USER }}
+        run: |
+          set -eu
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" '
+              set -eu
+              if [ -s /opt/mdg/releases/last-good ]; then
+                LAST_GOOD=$(cat /opt/mdg/releases/last-good)
+                ln -sfn "$LAST_GOOD" /opt/mdg/current
+                sudo systemctl restart mdg
+                echo "Rolled back to $LAST_GOOD"
+              else
+                echo "No last-known-good release recorded yet - nothing to roll back to"
+              fi
+            '
 

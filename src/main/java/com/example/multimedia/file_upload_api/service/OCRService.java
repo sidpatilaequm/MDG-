@@ -3,13 +3,13 @@ package com.example.multimedia.file_upload_api.service;
 import com.example.multimedia.file_upload_api.dto.CardDataDTO;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -20,11 +20,8 @@ public class OCRService {
 
     private final Tesseract tesseract;
 
-    public OCRService() {
+    public OCRService(@Value("${ocr.tessdata.path}") String tessdataPath) {
         tesseract = new Tesseract();
-        // Get the project root directory and append tessdata
-        String projectRoot = System.getProperty("user.dir");
-        String tessdataPath = Paths.get(projectRoot, "tessdata").toString();
         tesseract.setDatapath(tessdataPath);
         tesseract.setLanguage("eng");
     }

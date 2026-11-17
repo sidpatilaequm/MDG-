@@ -1,0 +1,17 @@
+[Unit]
+Description=MDG Spring Boot application
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mdg
+WorkingDirectory=/opt/mdg/current
+EnvironmentFile=/etc/mdg/mdg.env
+ExecStart=/usr/bin/java -jar /opt/mdg/current/mdg.jar
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target
