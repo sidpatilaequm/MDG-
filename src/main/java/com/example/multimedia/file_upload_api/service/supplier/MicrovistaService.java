@@ -302,11 +302,24 @@ public class MicrovistaService {
             }
             JSONObject data = optObj(res, "data", "Data");
             if (data == null) return VerifyResult.failed("No record found for this bank account.");
-            boolean verified = "ACCOUNT_VALID".equals(opt(data, "result_status"));
+            boolean verified = isAccountValid(opt(data, "result_status"));
             return new VerifyResult(verified, join(opt(data, "result_status"), opt(data, "result_name")), new ArrayList<>());
         } catch (Exception e) {
             logger.error("Bank verification failed", e);
             return VerifyResult.failed("Could not verify bank account.");
         }
+    }
+
+    /**
+     * Microvista's bank-verification result_status has been observed in both "ACCOUNT_VALID"
+     * (upper snake case, originally assumed) and "Account Valid" (title case with spaces, seen
+     * live against backend_java's production traffic - genuinely valid accounts were being
+     * reported as unverified because of this exact-string mismatch). Normalize before
+     * comparing, but still require an exact match against the normalized positive value - a
+     * naive "contains valid" check would also match "Account Invalid".
+     */
+    private static boolean isAccountValid(String resultStatus) {
+        if (resultStatus == null) return false;
+        return "ACCOUNT_VALID".equals(resultStatus.trim().toUpperCase().replace(' ', '_'));
     }
 }
