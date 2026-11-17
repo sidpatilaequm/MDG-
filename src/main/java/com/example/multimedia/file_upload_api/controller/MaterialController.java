@@ -5,6 +5,7 @@ import com.example.multimedia.file_upload_api.dto.MaterialImageSequenceUpdateReq
 import com.example.multimedia.file_upload_api.dto.ServiceResponse;
 import com.example.multimedia.file_upload_api.service.MaterialService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,8 +18,6 @@ import org.slf4j.LoggerFactory;
 import com.example.multimedia.file_upload_api.dto.MaterialAttributeDTO;
 import com.example.multimedia.file_upload_api.dto.VariantRequest;
 import com.example.multimedia.file_upload_api.dto.VariantUpdateRequest;
-import com.example.multimedia.file_upload_api.entity.MaterialVariant;
-import com.example.multimedia.file_upload_api.repository.MaterialVariantRepository;
 import com.example.multimedia.file_upload_api.utils.ServiceControllerUtils;
 import com.example.multimedia.file_upload_api.utils.AppConstants;
 import com.example.multimedia.file_upload_api.dto.VariantBulkRequest;
@@ -42,9 +41,6 @@ public class MaterialController {
 
     @Autowired
     private ObjectMapper objectMapper;
-
-    @Autowired
-    private MaterialVariantRepository materialVariantRepository;
 
     @Autowired
     private ServiceControllerUtils serviceControllerUtils;
@@ -110,7 +106,9 @@ public class MaterialController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error processing material request: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Failed to save material: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Failed to save material: " + e.getMessage()));
         }
     }
 
@@ -129,7 +127,9 @@ public class MaterialController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error processing bulk material request: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Failed to save materials: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Failed to save materials: " + e.getMessage()));
         }
     }
 
@@ -149,7 +149,9 @@ public class MaterialController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error processing bulk material with images request: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Failed to save materials: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Failed to save materials: " + e.getMessage()));
         }
     }
 
@@ -157,17 +159,37 @@ public class MaterialController {
     public ResponseEntity<?> bulkUploadMaterials(@RequestBody BulkMaterialUploadRequest request) {
         try {
             logger.info("Processing bulk material upload request with {} materials", request.getMaterials().size());
-            
+
             ServiceResponse response = materialService.bulkUploadMaterials(request);
             return ResponseEntity.ok(response);
-            
+
         } catch (Exception e) {
             logger.error("Error processing bulk material upload: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Error processing bulk material upload: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Error processing bulk material upload: " + e.getMessage()));
         }
     }
 
-   
+    /** Alias for /bulk-upload - Django's materials_bulk_payload_proxy sends the exact same
+     *  {@link BulkMaterialUploadRequest} shape to this distinct path. */
+    @PostMapping(value = "/bulk-upload/payload", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> bulkUploadMaterialsPayload(@RequestBody BulkMaterialUploadRequest request) {
+        return bulkUploadMaterials(request);
+    }
+
+    /** Downloadable .xlsx template matching {@link BulkMaterialUploadRequest.MaterialUploadItem}'s
+     *  columns, for /bulk-upload and /bulk-upload/payload. */
+    @GetMapping("/template/download")
+    public ResponseEntity<byte[]> downloadBulkUploadTemplate() {
+        byte[] fileBytes = materialService.generateBulkUploadTemplate();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.setContentDispositionFormData("attachment", "material_bulk_upload_template.xlsx");
+        headers.setContentLength(fileBytes.length);
+        return ResponseEntity.ok().headers(headers).body(fileBytes);
+    }
+
 
     @PostMapping(value = "/update/{materialId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> updateMaterialWithImagesPost(
@@ -249,13 +271,19 @@ public class MaterialController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error processing material update request: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Failed to update material: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Failed to update material: " + e.getMessage()));
         }
     }
 
     @GetMapping
-    public ResponseEntity<ServiceResponse> getAllMaterials() {
-        ServiceResponse response = materialService.getAllMaterials();
+    public ResponseEntity<ServiceResponse> getAllMaterials(
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size) {
+        ServiceResponse response = (page != null || size != null)
+                ? materialService.getAllMaterials(PageRequest.of(page != null ? page : 0, size != null ? size : 20))
+                : materialService.getAllMaterials();
         return ResponseEntity.ok(response);
     }
 
@@ -305,7 +333,9 @@ public class MaterialController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Error updating material image sequences: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Failed to update material image sequences: " + e.getMessage());
+            ServiceResponse response = new ServiceResponse();
+            return ResponseEntity.status(500).body(
+                    serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Failed to update material image sequences: " + e.getMessage()));
         }
     }
     
@@ -325,16 +355,7 @@ public class MaterialController {
 
     @PutMapping("/variants/{variantId}/barcode")
     public ResponseEntity<ServiceResponse> updateBarcodeImage(@PathVariable Long variantId, @RequestParam("file") MultipartFile file) throws IOException {
-        ServiceResponse response = new ServiceResponse();
-        try {
-        MaterialVariant variant = materialVariantRepository.findById(variantId)
-        .orElseThrow(() -> new RuntimeException("Variant not found"));
-        variant.setBarcodeImage(file.getBytes());
-        materialVariantRepository.save(variant);
-            serviceControllerUtils.prepareMobileResponseSuccessStatus(response, AppConstants.SUCCESSCODE, "Barcode image uploaded");
-        } catch (Exception e) {
-            serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, e.getMessage());
-        }
+        ServiceResponse response = materialService.updateVariantBarcodeImageById(variantId, file);
         return ResponseEntity.ok(response);
     }
 
@@ -456,16 +477,7 @@ public class MaterialController {
 
     @PutMapping("/variants/id/{variantId}/variant-image")
     public ResponseEntity<ServiceResponse> updateVariantImage(@PathVariable Long variantId, @RequestParam("file") MultipartFile file) throws IOException {
-        ServiceResponse response = new ServiceResponse();
-        try {
-            MaterialVariant variant = materialVariantRepository.findById(variantId)
-                .orElseThrow(() -> new RuntimeException("Variant not found"));
-            variant.setVariantImage(file.getBytes());
-            materialVariantRepository.save(variant);
-            serviceControllerUtils.prepareMobileResponseSuccessStatus(response, AppConstants.SUCCESSCODE, "Variant image uploaded");
-        } catch (Exception e) {
-            serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, e.getMessage());
-        }
+        ServiceResponse response = materialService.updateVariantImageById(variantId, file);
         return ResponseEntity.ok(response);
     }
 
@@ -487,17 +499,6 @@ public class MaterialController {
     public ResponseEntity<ServiceResponse> deleteMaterial(@PathVariable Long materialId) {
         ServiceResponse response = materialService.deleteMaterial(materialId);
         return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/debug/categories")
-    public ResponseEntity<?> debugCategories() {
-        try {
-            ServiceResponse response = materialService.debugCategories();
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            logger.error("Error in debug categories: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Debug failed: " + e.getMessage());
-        }
     }
 
     /**

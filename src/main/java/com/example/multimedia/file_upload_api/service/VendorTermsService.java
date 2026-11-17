@@ -2,7 +2,9 @@ package com.example.multimedia.file_upload_api.service;
 
 import com.example.multimedia.file_upload_api.dto.VendorTermsDTO;
 import com.example.multimedia.file_upload_api.dto.VendorTermsResponseDTO;
+import com.example.multimedia.file_upload_api.entity.CompanyDetails;
 import com.example.multimedia.file_upload_api.entity.VendorTerms;
+import com.example.multimedia.file_upload_api.repository.CompanyDetailsRepository;
 import com.example.multimedia.file_upload_api.repository.VendorTermsRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -22,6 +24,12 @@ public class VendorTermsService {
     @Autowired
     private VendorTermsRepository vendorTermsRepository;
 
+    @Autowired
+    private CompanyDetailsRepository companyDetailsRepository;
+
+    @Autowired
+    private CurrentUserService currentUserService;
+
     public VendorTermsResponseDTO createVendorTerms(VendorTermsDTO dto) {
         VendorTerms vendorTerms = new VendorTerms();
         updateVendorTermsFromDTO(vendorTerms, dto);
@@ -30,57 +38,84 @@ public class VendorTermsService {
     }
 
     public VendorTermsResponseDTO getVendorTerms(Long id) {
-        VendorTerms vendorTerms = vendorTermsRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Vendor terms not found"));
+        VendorTerms vendorTerms = findByIdOwnedByCurrentAdmin(id);
         return convertToResponseDTO(vendorTerms);
     }
 
     public List<VendorTermsResponseDTO> getVendorTermsByUser(Long userId) {
         return vendorTermsRepository.findByUser_UserId(userId).stream()
+                .filter(this::isOwnedByCurrentAdmin)
                 .map(this::convertToResponseDTO)
                 .collect(Collectors.toList());
     }
 
     public List<VendorTermsResponseDTO> getVendorTermsByCompany(Long companyId) {
+        requireCompanyOwnedByCurrentAdmin(companyId);
         return vendorTermsRepository.findByCompany_CompanyId(companyId).stream()
                 .map(this::convertToResponseDTO)
                 .collect(Collectors.toList());
     }
 
     public VendorTermsResponseDTO updateVendorTerms(Long id, VendorTermsDTO dto) {
-        VendorTerms vendorTerms = vendorTermsRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Vendor terms not found"));
+        VendorTerms vendorTerms = findByIdOwnedByCurrentAdmin(id);
         updateVendorTermsFromDTO(vendorTerms, dto);
         vendorTerms = vendorTermsRepository.save(vendorTerms);
         return convertToResponseDTO(vendorTerms);
     }
 
     public void deleteVendorTerms(Long id) {
+        findByIdOwnedByCurrentAdmin(id);
         vendorTermsRepository.deleteById(id);
     }
 
     public ResponseEntity<byte[]> getPaymentTermsFile(Long id) {
-        VendorTerms vendorTerms = vendorTermsRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Vendor terms not found"));
-        return createFileResponse(vendorTerms.getPaymentTermsFile(), 
-                                vendorTerms.getPaymentTermsFileName(), 
+        VendorTerms vendorTerms = findByIdOwnedByCurrentAdmin(id);
+        return createFileResponse(vendorTerms.getPaymentTermsFile(),
+                                vendorTerms.getPaymentTermsFileName(),
                                 vendorTerms.getPaymentTermsFileType());
     }
 
     public ResponseEntity<byte[]> getIncotermsFile(Long id) {
-        VendorTerms vendorTerms = vendorTermsRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Vendor terms not found"));
-        return createFileResponse(vendorTerms.getIncotermsFile(), 
-                                vendorTerms.getIncotermsFileName(), 
+        VendorTerms vendorTerms = findByIdOwnedByCurrentAdmin(id);
+        return createFileResponse(vendorTerms.getIncotermsFile(),
+                                vendorTerms.getIncotermsFileName(),
                                 vendorTerms.getIncotermsFileType());
     }
 
     public ResponseEntity<byte[]> getDeliveryTermsFile(Long id) {
+        VendorTerms vendorTerms = findByIdOwnedByCurrentAdmin(id);
+        return createFileResponse(vendorTerms.getDeliveryTermsFile(),
+                                vendorTerms.getDeliveryTermsFileName(),
+                                vendorTerms.getDeliveryTermsFileType());
+    }
+
+    /** Loads a VendorTerms row and rejects it outright (as if it didn't exist) unless it
+     *  belongs to the currently authenticated super admin's tenant - previously this class had
+     *  no tenant check at all, meaning any authenticated super admin could fetch another
+     *  tenant's payment-terms/incoterms/delivery-terms files by guessing/incrementing an id. */
+    private VendorTerms findByIdOwnedByCurrentAdmin(Long id) {
         VendorTerms vendorTerms = vendorTermsRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Vendor terms not found"));
-        return createFileResponse(vendorTerms.getDeliveryTermsFile(), 
-                                vendorTerms.getDeliveryTermsFileName(), 
-                                vendorTerms.getDeliveryTermsFileType());
+        if (!isOwnedByCurrentAdmin(vendorTerms)) {
+            throw new RuntimeException("Vendor terms not found");
+        }
+        return vendorTerms;
+    }
+
+    private boolean isOwnedByCurrentAdmin(VendorTerms vendorTerms) {
+        Long currentAdminId = currentUserService.getCurrentSuperAdminId();
+        CompanyDetails company = vendorTerms.getCompany();
+        return company != null && company.getSuperAdmin() != null
+                && company.getSuperAdmin().getSuperAdminId().equals(currentAdminId);
+    }
+
+    private void requireCompanyOwnedByCurrentAdmin(Long companyId) {
+        Long currentAdminId = currentUserService.getCurrentSuperAdminId();
+        CompanyDetails company = companyDetailsRepository.findById(companyId)
+                .orElseThrow(() -> new RuntimeException("Company not found"));
+        if (company.getSuperAdmin() == null || !company.getSuperAdmin().getSuperAdminId().equals(currentAdminId)) {
+            throw new RuntimeException("Company not found");
+        }
     }
 
     private void updateVendorTermsFromDTO(VendorTerms vendorTerms, VendorTermsDTO dto) {

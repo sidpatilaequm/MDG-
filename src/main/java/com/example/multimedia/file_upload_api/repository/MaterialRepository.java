@@ -21,6 +21,7 @@ public interface MaterialRepository extends JpaRepository<Material, Long> {
     
     // New methods for admin filtering
     List<Material> findBySuperAdmin_SuperAdminId(Long superAdminId);
+    org.springframework.data.domain.Page<Material> findBySuperAdmin_SuperAdminId(Long superAdminId, org.springframework.data.domain.Pageable pageable);
     List<Material> findBySuperAdmin_SuperAdminIdAndItemCategory_ItemCategoryId(Long superAdminId, Long categoryId);
     List<Material> findBySuperAdmin_SuperAdminIdAndSubcategory_ItemSubcategoryId(Long superAdminId, Long subcategoryId);
     List<Material> findBySuperAdmin_SuperAdminIdAndBlocked(Long superAdminId, Boolean blocked);

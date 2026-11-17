@@ -111,11 +111,15 @@ public class MaterialService {
     public ServiceResponse saveMaterial(MaterialCreateRequest req, MultipartFile barcodeImage, List<MultipartFile> materialImages) throws IOException {
         ServiceResponse response = new ServiceResponse();
         try {
+            if (req.getItemCategoryCode() == null || req.getItemCategoryCode().trim().isEmpty()) {
+                return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Category code cannot be null or empty");
+            }
+
             // Get current admin from security context first
             Long currentAdminId = currentUserService.getCurrentSuperAdminId();
-            
+
             SuperAdmin superAdmin = superAdminRepository.findById(currentAdminId).orElseThrow(() -> new RuntimeException("SuperAdmin not found"));
-            
+
             // Validate and get location
             if (req.getLocationId() == null) {
                 return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Location ID is required");
@@ -498,6 +502,38 @@ public class MaterialService {
                 .collect(Collectors.toList());
 
             response.addData("materials", materialDTOs);
+            return serviceControllerUtils.prepareMobileResponseSuccessStatus(
+                response,
+                AppConstants.SUCCESSCODE,
+                "Materials retrieved successfully"
+            );
+
+        } catch (Exception e) {
+            return serviceControllerUtils.prepareMobileResponseErrorStatus(
+                response,
+                AppConstants.ERRORCODE,
+                "Failed to retrieve materials: " + e.getMessage()
+            );
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public ServiceResponse getAllMaterials(org.springframework.data.domain.Pageable pageable) {
+        ServiceResponse response = new ServiceResponse();
+
+        try {
+            Long currentAdminId = currentUserService.getCurrentSuperAdminId();
+
+            org.springframework.data.domain.Page<Material> page = materialRepository.findBySuperAdmin_SuperAdminId(currentAdminId, pageable);
+            List<MaterialDTO> materialDTOs = page.getContent().stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+
+            response.addData("materials", materialDTOs);
+            response.addData("totalElements", page.getTotalElements());
+            response.addData("totalPages", page.getTotalPages());
+            response.addData("page", page.getNumber());
+            response.addData("size", page.getSize());
             return serviceControllerUtils.prepareMobileResponseSuccessStatus(
                 response,
                 AppConstants.SUCCESSCODE,
@@ -1106,6 +1142,58 @@ public class MaterialService {
             singleList.add(variant);
             response.addData("variant", buildVariantList(singleList).get(0));
             serviceControllerUtils.prepareMobileResponseSuccessStatus(response, AppConstants.SUCCESSCODE, "Variant image uploaded successfully");
+        } catch (Exception e) {
+            serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, e.getMessage());
+        }
+        return response;
+    }
+
+    /** By-id counterpart of {@link #updateVariantBarcodeImageByCode} - moved here from
+     *  MaterialController, which previously called materialVariantRepository directly. */
+    @Transactional
+    public ServiceResponse updateVariantBarcodeImageById(Long variantId, MultipartFile file) throws IOException {
+        ServiceResponse response = new ServiceResponse();
+        try {
+            if (file.getSize() > 5 * 1024 * 1024) {
+                return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "File size too large. Maximum allowed size is 5MB.");
+            }
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Invalid file type. Only image files are allowed.");
+            }
+
+            MaterialVariant variant = materialVariantRepository.findById(variantId)
+                .orElseThrow(() -> new RuntimeException("Variant not found"));
+            variant.setBarcodeImage(file.getBytes());
+            materialVariantRepository.save(variant);
+
+            serviceControllerUtils.prepareMobileResponseSuccessStatus(response, AppConstants.SUCCESSCODE, "Barcode image uploaded");
+        } catch (Exception e) {
+            serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, e.getMessage());
+        }
+        return response;
+    }
+
+    /** By-id counterpart of {@link #updateVariantImageByCode} - moved here from
+     *  MaterialController, which previously called materialVariantRepository directly. */
+    @Transactional
+    public ServiceResponse updateVariantImageById(Long variantId, MultipartFile file) throws IOException {
+        ServiceResponse response = new ServiceResponse();
+        try {
+            if (file.getSize() > 5 * 1024 * 1024) {
+                return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "File size too large. Maximum allowed size is 5MB.");
+            }
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, "Invalid file type. Only image files are allowed.");
+            }
+
+            MaterialVariant variant = materialVariantRepository.findById(variantId)
+                .orElseThrow(() -> new RuntimeException("Variant not found"));
+            variant.setVariantImage(file.getBytes());
+            materialVariantRepository.save(variant);
+
+            serviceControllerUtils.prepareMobileResponseSuccessStatus(response, AppConstants.SUCCESSCODE, "Variant image uploaded");
         } catch (Exception e) {
             serviceControllerUtils.prepareMobileResponseErrorStatus(response, AppConstants.ERRORCODE, e.getMessage());
         }
@@ -1841,63 +1929,27 @@ public class MaterialService {
         return result;
     }
 
-    @Transactional(readOnly = true)
-    public ServiceResponse debugCategories() {
-        ServiceResponse response = new ServiceResponse();
-        try {
-            // Get current admin and company
-            Long currentAdminId = currentUserService.getCurrentSuperAdminId();
-            List<CompanyDetails> adminCompanies = companyDetailsRepository.findBySuperAdminSuperAdminId(currentAdminId);
-            
-            // Get all categories
-            List<ItemCategory> categories = itemCategoryRepository.findAll();
-            List<Map<String, Object>> categoryData = categories.stream().map(cat -> {
-                Map<String, Object> data = new HashMap<>();
-                data.put("categoryId", cat.getItemCategoryId());
-                data.put("code", cat.getCode());
-                data.put("description", cat.getDescription());
-                return data;
-            }).collect(Collectors.toList());
-            
-            // Get all subcategories
-            List<ItemSubcategory> subcategories = itemSubcategoryRepository.findAll();
-            List<Map<String, Object>> subcategoryData = subcategories.stream().map(sub -> {
-                Map<String, Object> data = new HashMap<>();
-                data.put("subcategoryId", sub.getItemSubcategoryId());
-                data.put("name", sub.getItemSubcategoryName());
-                data.put("categoryId", sub.getItemCategory() != null ? sub.getItemCategory().getItemCategoryId() : null);
-                data.put("categoryCode", sub.getItemCategory() != null ? sub.getItemCategory().getCode() : null);
-                data.put("companyId", sub.getCompany() != null ? sub.getCompany().getCompanyId() : null);
-                data.put("isActive", sub.getIsActive());
-                return data;
-            }).collect(Collectors.toList());
-            
-            // Get current admin's companies
-            List<Map<String, Object>> companyData = adminCompanies.stream().map(comp -> {
-                Map<String, Object> data = new HashMap<>();
-                data.put("companyId", comp.getCompanyId());
-                data.put("companyName", comp.getCompanyName());
-                data.put("superAdminId", comp.getSuperAdmin() != null ? comp.getSuperAdmin().getSuperAdminId() : null);
-                return data;
-            }).collect(Collectors.toList());
-            
-            response.addData("currentAdminId", currentAdminId);
-            response.addData("currentAdminCompanies", companyData);
-            response.addData("categories", categoryData);
-            response.addData("subcategories", subcategoryData);
-            
-            return serviceControllerUtils.prepareMobileResponseSuccessStatus(
-                response,
-                AppConstants.SUCCESSCODE,
-                "Debug data retrieved successfully"
-            );
-        } catch (Exception e) {
-            logger.error("Error in debug categories: {}", e.getMessage(), e);
-            return serviceControllerUtils.prepareMobileResponseErrorStatus(
-                response,
-                AppConstants.ERRORCODE,
-                "Failed to retrieve debug data: " + e.getMessage()
-            );
+    private static final String[] BULK_UPLOAD_TEMPLATE_COLUMNS = {
+        "materialName", "description", "vendorArticleNumber", "blocked", "type",
+        "baseUnitOfMeasure", "itemCategoryCode", "subcategoryName", "hsnCode", "sku",
+        "purchasingCode", "variantMandatory", "location"
+    };
+
+    /** Downloadable .xlsx template matching {@link BulkMaterialUploadRequest.MaterialUploadItem}'s
+     *  fields, for the bulk-upload/bulk-upload-payload endpoints' expected input shape. */
+    public byte[] generateBulkUploadTemplate() {
+        try (org.apache.poi.ss.usermodel.Workbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("Materials");
+            org.apache.poi.ss.usermodel.Row header = sheet.createRow(0);
+            for (int i = 0; i < BULK_UPLOAD_TEMPLATE_COLUMNS.length; i++) {
+                header.createCell(i).setCellValue(BULK_UPLOAD_TEMPLATE_COLUMNS[i]);
+                sheet.setColumnWidth(i, 20 * 256);
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to generate bulk upload template: " + e.getMessage(), e);
         }
     }
 

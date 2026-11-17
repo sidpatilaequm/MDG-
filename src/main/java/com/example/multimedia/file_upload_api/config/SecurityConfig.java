@@ -40,7 +40,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/approvals/action/**").permitAll()
                         .requestMatchers("/api/actuator/health", "/actuator/health").permitAll()
                         .requestMatchers("/api/admin/approver-groups/**").hasAuthority("super_admin")
-                        .requestMatchers("/api/supplier-registration/**", "/api/approvals/**")
+                        .requestMatchers("/api/supplier-registration/**", "/api/approvals/**",
+                                "/api/vendor-onboarding/**")
                             .hasAnyAuthority("approver", "super_admin")
                         // Deliberately NOT "/api/vendor/**" - VendorCatalogueController already
                         // lives at that prefix for any authenticated user; a new, narrower path
