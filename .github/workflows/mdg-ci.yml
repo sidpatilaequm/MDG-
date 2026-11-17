@@ -92,7 +92,7 @@ jobs:
           RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
           ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
             "$SERVER_USER@$SERVER_HOST" \
-            "command -v java >/dev/null 2>&1 || (dnf install -y java-17-openjdk-headless); java -version; mkdir -p '$RELEASE'"
+            "command -v java >/dev/null 2>&1 || (dnf install -y java-17-openjdk-headless); java -version; mkdir -p '$RELEASE' && sudo chown -R mdg:mdg '$RELEASE'"
 
       - name: Copy MDG application and OCR data
         env:
@@ -104,7 +104,7 @@ jobs:
           RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
           ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
             "$SERVER_USER@$SERVER_HOST" \
-            "mkdir -p '$RELEASE/tessdata'"
+            "mkdir -p '$RELEASE/tessdata' && sudo chown -R mdg:mdg '$RELEASE'"
           scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
             deploy-files/dist/mdg.jar \
             "$SERVER_USER@$SERVER_HOST:$RELEASE/mdg.jar"
