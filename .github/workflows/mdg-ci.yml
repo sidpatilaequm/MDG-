@@ -102,7 +102,9 @@ jobs:
         run: |
           set -eu
           RELEASE="/opt/mdg/releases/${GITHUB_RUN_NUMBER}"
-          mkdir -p "$RELEASE/tessdata"
+          ssh -i ~/.ssh/id_ed25519 -p "$SERVER_PORT" \
+            "$SERVER_USER@$SERVER_HOST" \
+            "mkdir -p '$RELEASE/tessdata'"
           scp -i ~/.ssh/id_ed25519 -P "$SERVER_PORT" \
             deploy-files/dist/mdg.jar \
             "$SERVER_USER@$SERVER_HOST:$RELEASE/mdg.jar"
