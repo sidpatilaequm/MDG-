@@ -41,7 +41,11 @@ public class FileExtractionService {
     @Autowired
     private CurrentUserService currentUserService;
 
-    @Value("${use.mock.responses}")
+    // Default false, matching ChequeOcrService/PanOcrService - this property is never
+    // actually settable via systemd's EnvironmentFile mechanism in production (it rejects
+    // dotted key names outright), so a missing default here left the app permanently unable
+    // to start as a live service.
+    @Value("${use.mock.responses:false}")
     private boolean useMockResponses;
 
     public ServiceResponse extractDataFromFiles(MultipartFile gstFile, MultipartFile panFile, 
